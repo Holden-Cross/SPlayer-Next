@@ -55,7 +55,9 @@
       .splash-logo {
         width: 80px;
         height: 80px;
-        filter: drop-shadow(0 0 20px color-mix(in srgb, var(--splash-primary, #fe7971) 45%, transparent));
+        filter: drop-shadow(
+          0 0 20px color-mix(in srgb, var(--splash-primary, #fe7971) 45%, transparent)
+        );
         animation: splash-rise 0.6s cubic-bezier(0.33, 1, 0.68, 1) 0.1s both;
       }
       .splash-name {
@@ -166,7 +168,11 @@
         <img src="/icons/logo.svg" alt="SPlayer" class="splash-logo" />
         <div class="splash-name">SPlayer Next</div>
       </div>
-      <div class="splash-dots"><i></i><i></i><i></i></div>
+      <div class="splash-dots">
+        <i></i>
+        <i></i>
+        <i></i>
+      </div>
       <div class="splash-footer">SPlayer Next · © 2026 imsyy</div>
     </div>
     <div id="app"></div>
