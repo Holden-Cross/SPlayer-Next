@@ -49,7 +49,7 @@ const buildMenu = (): Menu => {
       label: liked ? t("removeFromLiked") : t("addToLiked"),
       icon: menuIcon(liked ? "like" : "unlike"),
       enabled: !!songName,
-      click: () => sendToMain("player:event", { type: "toggleLike" }),
+      click: () => sendToMain("player:event", { type: "toggleLike", data: { source: "tray" } }),
     },
     { type: "separator" },
     {

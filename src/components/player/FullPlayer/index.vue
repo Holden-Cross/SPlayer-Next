@@ -362,7 +362,7 @@ const showComments = (): void => {
               size="large"
               circle
               :disabled="!hasTrack"
-              @click="fav.toggle(displayTrack)"
+              @click="fav.toggle(displayTrack, 'full-player')"
             >
               <template #icon>
                 <SIconSwap :active="fav.isLiked(displayTrack)">

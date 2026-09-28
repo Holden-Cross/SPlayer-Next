@@ -1,3 +1,4 @@
+import type { FavoriteTrace } from "@shared/types/apis";
 import type { Playlist, Track } from "@shared/types/player";
 import { netease as neteaseApi } from "@/apis/netease";
 import { ensureOk, songsToTracks, toPlaylist } from "@/utils/format/netease";
@@ -8,6 +9,7 @@ const SONG_DETAIL_BATCH = 500;
 
 /** fetchPlaylist 可选参数 */
 export interface FetchPlaylistOptions {
+  trace?: FavoriteTrace;
   /** 元数据回调 */
   onMeta?: (meta: Playlist) => void;
   /** 曲目分批回调 */
@@ -30,7 +32,7 @@ export const fetchPlaylist = async (
   options: FetchPlaylistOptions = {},
 ): Promise<void> => {
   if (options.signal?.aborted) return;
-  const body = await neteaseApi.playlist_detail({ id: playlistId });
+  const body = await neteaseApi.playlist_detail({ id: playlistId }, options.trace);
   if (options.signal?.aborted) return;
   const raw = body?.playlist;
   if (!raw) return;
@@ -69,8 +71,8 @@ export const createPlaylist = async (name: string, privacy: 0 | 10 = 0): Promise
  * 删除歌单
  * @param id 歌单 id
  */
-export const deletePlaylist = async (id: string): Promise<void> => {
-  ensureOk(await neteaseApi.playlist_delete({ id }));
+export const deletePlaylist = async (id: string, trace?: FavoriteTrace): Promise<void> => {
+  ensureOk(await neteaseApi.playlist_delete({ id }, trace));
 };
 
 /**
@@ -97,14 +99,21 @@ export const updatePlaylistDesc = async (id: string, desc: string): Promise<void
  * @param trackIds 曲目 id 列表
  * @returns 实际加入条数
  */
-export const addToPlaylist = async (playlistId: string, trackIds: string[]): Promise<number> => {
+export const addToPlaylist = async (
+  playlistId: string,
+  trackIds: string[],
+  trace?: FavoriteTrace,
+): Promise<number> => {
   if (trackIds.length === 0) return 0;
   const body = ensureOk(
-    await neteaseApi.playlist_tracks({
-      op: "add",
-      pid: playlistId,
-      tracks: trackIds.join(","),
-    }),
+    await neteaseApi.playlist_tracks(
+      {
+        op: "add",
+        pid: playlistId,
+        tracks: trackIds.join(","),
+      },
+      trace,
+    ),
   );
   return typeof body.count === "number" ? body.count : trackIds.length;
 };
@@ -114,14 +123,21 @@ export const addToPlaylist = async (playlistId: string, trackIds: string[]): Pro
  * @param playlistId 歌单 id
  * @param trackIds 曲目 id 列表
  */
-export const removeFromPlaylist = async (playlistId: string, trackIds: string[]): Promise<void> => {
+export const removeFromPlaylist = async (
+  playlistId: string,
+  trackIds: string[],
+  trace?: FavoriteTrace,
+): Promise<void> => {
   if (trackIds.length === 0) return;
   ensureOk(
-    await neteaseApi.playlist_tracks({
-      op: "del",
-      pid: playlistId,
-      tracks: trackIds.join(","),
-    }),
+    await neteaseApi.playlist_tracks(
+      {
+        op: "del",
+        pid: playlistId,
+        tracks: trackIds.join(","),
+      },
+      trace,
+    ),
   );
 };
 

@@ -1,3 +1,4 @@
+import { favoriteLog, favoriteRequestContext } from "../diagnostics";
 /**
  * Netease API 请求层
  *
@@ -156,6 +157,17 @@ export const createRequest = async (
   data: Record<string, unknown>,
   options: RequestOptions,
 ): Promise<RequestResponse> => {
+  const wireId = randomBytes(8).toString("hex");
+  if (favoriteRequestContext.getStore()) {
+    let ids: unknown[] | undefined;
+    if (typeof data.trackIds === "string") {
+      try {
+        const parsed: unknown = JSON.parse(data.trackIds);
+        if (Array.isArray(parsed)) ids = parsed;
+      } catch {}
+    }
+    favoriteLog("wire-prepare", { ...data, wireId, uri, crypto: options.crypto }, ids);
+  }
   const headers: Record<string, string> = {};
   const ip = options.realIP || options.ip || "";
   if (ip) {
@@ -301,14 +313,25 @@ export const createRequest = async (
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
+      if (favoriteRequestContext.getStore())
+        favoriteLog("network-send", { wireId, uri, crypto, attempt });
       res = await fetchWithProxy(url, {
         method: "POST",
         headers,
         body,
         signal: AbortSignal.timeout(8000),
       });
+      if (favoriteRequestContext.getStore())
+        favoriteLog("network-response", { wireId, uri, attempt, httpStatus: res.status });
       break;
     } catch (err) {
+      if (favoriteRequestContext.getStore())
+        favoriteLog(
+          "network-error",
+          { wireId, uri, attempt, errorName: err instanceof Error ? err.name : "unknown" },
+          undefined,
+          true,
+        );
       lastErr = err;
       if (attempt < maxAttempts) {
         await new Promise((resolve) => setTimeout(resolve, attempt * 200));
@@ -373,12 +396,21 @@ export const createRequest = async (
       answer.status = 200;
     }
   } catch {
+    if (favoriteRequestContext.getStore())
+      favoriteLog(
+        "response-parse-failed",
+        { wireId, uri, httpStatus: res.status },
+        undefined,
+        true,
+      );
     answer.body = { code: res.status, msg: "parse failed" };
     answer.status = res.status;
   }
 
   answer.status = answer.status > 100 && answer.status < 600 ? answer.status : 400;
 
+  if (favoriteRequestContext.getStore())
+    favoriteLog("wire-result", { wireId, uri, status: answer.status, code: answer.body.code });
   if (answer.status === 200) return answer;
   throw new NeteaseRequestError(answer);
 };

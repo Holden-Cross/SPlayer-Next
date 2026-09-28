@@ -1,3 +1,5 @@
+import type { FavoriteTrace } from "@shared/types/apis";
+import { favoriteLog, rendererFavoriteLog } from "@main/apis/netease/diagnostics";
 /**
  * 音源 API 统一 IPC
  *
@@ -21,10 +23,11 @@ const dispatch = async (
   platform: ApiPlatform,
   name: string,
   params: Record<string, unknown>,
+  trace?: FavoriteTrace,
 ): Promise<Record<string, unknown>> => {
   switch (platform) {
     case "netease": {
-      const res = await callNetease(name, params);
+      const res = await callNetease(name, params, trace);
       return { status: res.status, body: res.body };
     }
     case "qqmusic": {
@@ -41,11 +44,19 @@ const dispatch = async (
 };
 
 export const registerApisIpc = (): void => {
+  favoriteLog("ready");
+  ipcMain.on("apis:favoriteDiagnostic", (_event, payload) => rendererFavoriteLog(payload));
   ipcMain.handle(
     "apis:call",
-    async (_evt, platform: ApiPlatform, name: string, params?: Record<string, unknown>) => {
+    async (
+      _evt,
+      platform: ApiPlatform,
+      name: string,
+      params?: Record<string, unknown>,
+      trace?: FavoriteTrace,
+    ) => {
       try {
-        const result = await dispatch(platform, name, params ?? {});
+        const result = await dispatch(platform, name, params ?? {}, trace);
         return { ok: true, ...result };
       } catch (err) {
         coreLog.warn(`[apis] ${platform}.${name} failed:`, err);

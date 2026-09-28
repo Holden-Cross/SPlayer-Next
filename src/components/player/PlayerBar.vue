@@ -62,7 +62,7 @@ const { items: menuItems, handleSelect: onMenuSelect } = useTrackMenu(toRef(medi
                 circle
                 :size="24"
                 :icon-size="16"
-                @click="fav.toggle(media.track)"
+                @click="fav.toggle(media.track, 'player-bar')"
               >
                 <template #icon>
                   <SIconSwap :active="fav.isLiked(media.track)">
@@ -142,7 +142,7 @@ const { items: menuItems, handleSelect: onMenuSelect } = useTrackMenu(toRef(medi
               circle
               :size="28"
               :icon-size="18"
-              @click="fav.toggle(media.track)"
+              @click="fav.toggle(media.track, 'player-bar')"
             >
               <template #icon>
                 <SIconSwap :active="fav.isLiked(media.track)">

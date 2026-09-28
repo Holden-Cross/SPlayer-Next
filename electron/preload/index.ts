@@ -1,3 +1,4 @@
+import type { FavoriteTrace, FavoriteDiagnostic } from "@shared/types/apis";
 import os from "os";
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
@@ -406,8 +407,14 @@ const api = {
   },
   apis: {
     // 调用任意平台的任意接口
-    call: (platform: string, name: string, params?: Record<string, unknown>) =>
-      ipcRenderer.invoke("apis:call", platform, name, params ?? {}),
+    call: (
+      platform: string,
+      name: string,
+      params?: Record<string, unknown>,
+      trace?: FavoriteTrace,
+    ) => ipcRenderer.invoke("apis:call", platform, name, params ?? {}, trace),
+    favoriteDiagnostic: (event: FavoriteDiagnostic) =>
+      ipcRenderer.send("apis:favoriteDiagnostic", event),
     // 清空指定平台的登录态
     clearSession: (platform: string) => ipcRenderer.invoke("apis:clearSession", platform),
     // 打开官方网页登录窗口

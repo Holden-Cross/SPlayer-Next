@@ -1,3 +1,5 @@
+import type { FavoriteTrace } from "@shared/types/apis";
+import { favoriteDiagnostic } from "@/services/favoriteDiagnostics";
 import type { Album, Artist, Playlist } from "@shared/types/player";
 import type { UserSubcount } from "@/types/user";
 import { netease as neteaseApi } from "@/apis/netease";
@@ -27,12 +29,19 @@ const fetchAllPages = async <Item>(
 };
 
 /** 用户全部歌单 */
-export const fetchUserPlaylists = async (uid: number, total?: number): Promise<Playlist[]> => {
-  const body = await neteaseApi.user_playlist({
-    uid,
-    limit: total && total > 0 ? total : 1000,
-    offset: 0,
-  });
+export const fetchUserPlaylists = async (
+  uid: number,
+  total?: number,
+  trace?: FavoriteTrace,
+): Promise<Playlist[]> => {
+  const body = await neteaseApi.user_playlist(
+    {
+      uid,
+      limit: total && total > 0 ? total : 1000,
+      offset: 0,
+    },
+    trace,
+  );
   return (body?.playlist ?? []).map(toPlaylist);
 };
 
@@ -43,8 +52,8 @@ export const fetchSubcount = async (): Promise<UserSubcount> => {
 };
 
 /** 用户喜欢歌曲 id 列表 */
-export const fetchLikelist = async (uid: number): Promise<string[]> => {
-  const body = await neteaseApi.likelist({ uid });
+export const fetchLikelist = async (uid: number, trace?: FavoriteTrace): Promise<string[]> => {
+  const body = await neteaseApi.likelist({ uid }, trace);
   return ((body?.ids as number[]) ?? []).map(String);
 };
 
@@ -68,12 +77,21 @@ export const fetchUserArtists = (): Promise<Artist[]> =>
  * @param trackId - 歌曲 ID
  * @param like - true 为红心，false 为取消红心
  */
-export const toggleLikeSong = async (trackId: string, like: boolean): Promise<void> => {
+export const toggleLikeSong = async (
+  trackId: string,
+  like: boolean,
+  trace?: FavoriteTrace,
+): Promise<void> => {
   try {
-    const res = await neteaseApi.like_v1<{ code?: number }>({ id: trackId, like });
+    const res = await neteaseApi.like_v1<{ code?: number }>({ id: trackId, like }, trace);
     if (res && (res.code === 200 || Number(res.code) === 200)) return;
   } catch {}
-  ensureOk(await neteaseApi.like({ id: trackId, like }));
+  if (trace)
+    favoriteDiagnostic({ ...trace, source: "like_v1-to-like" }, "fallback", {
+      trackId,
+      liked: like,
+    });
+  ensureOk(await neteaseApi.like({ id: trackId, like }, trace));
 };
 
 /** 用户等级 */

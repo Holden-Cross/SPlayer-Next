@@ -1,3 +1,5 @@
+import type { FavoriteTrace } from "@shared/types/apis";
+import { favoriteTrace, favoriteDiagnostic } from "@/services/favoriteDiagnostics";
 import localforage from "localforage";
 import type { Album, Artist, Playlist, Track } from "@shared/types/player";
 import type { UserProfile, UserSubcount } from "@/types/user";
@@ -173,8 +175,23 @@ export const useUserStore = defineStore(
      * 应用远端红心 id 列表
      * @param ids 歌曲 id 列表
      */
-    const applyLikedSongIds = (ids: Iterable<string>): void => {
+    const applyLikedSongIds = (ids: Iterable<string>, trace: FavoriteTrace): void => {
       const next = [...ids];
+      favoriteDiagnostic({ ...trace, source: trace.source + ":before" }, "snapshot", {
+        userId: profile.value?.userId,
+        ids: [...likedSongIds.value],
+      });
+      favoriteDiagnostic({ ...trace, source: trace.source + ":incoming" }, "snapshot", {
+        userId: profile.value?.userId,
+        ids: next,
+      });
+      const incoming = new Set(next);
+      favoriteDiagnostic({ ...trace, source: trace.source + ":added" }, "snapshot", {
+        ids: next.filter((id) => !likedSongIds.value.has(id)),
+      });
+      favoriteDiagnostic({ ...trace, source: trace.source + ":removed" }, "snapshot", {
+        ids: [...likedSongIds.value].filter((id) => !incoming.has(id)),
+      });
       if (hasSameLikedSongIds(next)) return;
       likedSongIds.value = new Set(next);
       persistLikedSongIds();
@@ -228,10 +245,19 @@ export const useUserStore = defineStore(
     };
 
     /** 从缓存填充喜欢歌单 */
-    const hydrateLikedPlaylistFromCache = async (playlistId: string): Promise<void> => {
+    const hydrateLikedPlaylistFromCache = async (
+      playlistId: string,
+      trace: FavoriteTrace,
+    ): Promise<void> => {
       try {
         const cached = await cacheDb.getItem<LikedPlaylistCache>(LIKED_PLAYLIST_CACHE_KEY);
-        if (cached && cached.playlistId === playlistId) likedPlaylistTracks.value = cached.tracks;
+        if (cached && cached.playlistId === playlistId) {
+          favoriteDiagnostic({ ...trace, source: "liked-playlist-cache" }, "snapshot", {
+            playlistId,
+            ids: cached.tracks.map((track) => track.id),
+          });
+          likedPlaylistTracks.value = cached.tracks;
+        }
       } catch {
         console.error("[user] hydrate liked playlist from cache failed");
       }
@@ -252,7 +278,11 @@ export const useUserStore = defineStore(
     };
 
     /** 拉取最新喜欢歌单曲目 */
-    const refreshLikedPlaylist = async (playlistId: string): Promise<void> => {
+    const refreshLikedPlaylist = async (
+      playlistId: string,
+      trace = favoriteTrace("refresh-liked-playlist"),
+    ): Promise<void> => {
+      favoriteDiagnostic(trace, "sync-start", { playlistId });
       likedPlaylistAbort?.abort();
       const controller = new AbortController();
       likedPlaylistAbort = controller;
@@ -260,6 +290,7 @@ export const useUserStore = defineStore(
       try {
         const accumulated: Track[] = [];
         await fetchPlaylist(playlistId, {
+          trace,
           signal: controller.signal,
           onBatch: (batch) => {
             if (controller.signal.aborted) return;
@@ -269,9 +300,20 @@ export const useUserStore = defineStore(
         });
         if (controller.signal.aborted) return;
         likedPlaylistTracks.value = accumulated;
-        applyLikedSongIds(accumulated.map((track) => track.id));
+        applyLikedSongIds(
+          accumulated.map((track) => track.id),
+          { ...trace, source: "playlist-apply" },
+        );
         persistLikedPlaylistCache(playlistId, accumulated);
       } finally {
+        favoriteDiagnostic(
+          {
+            ...trace,
+            source: controller.signal.aborted ? "playlist-aborted" : "playlist-finished",
+          },
+          "sync-end",
+          { playlistId },
+        );
         if (!controller.signal.aborted) likedPlaylistLoading.value = false;
       }
     };
@@ -283,17 +325,18 @@ export const useUserStore = defineStore(
      * @param force true 强制走网络刷新（用户手动点刷新时用）
      */
     const ensureLikedPlaylist = async (force = false): Promise<void> => {
+      const trace = favoriteTrace(force ? "liked-page-force" : "liked-page");
       const playlistId = likedPlaylistId.value;
       if (!playlistId) return;
       if (currentLikedPlaylistId !== playlistId) {
         currentLikedPlaylistId = playlistId;
         likedPlaylistTracks.value = [];
-        await hydrateLikedPlaylistFromCache(playlistId);
-        refreshLikedPlaylist(playlistId);
+        await hydrateLikedPlaylistFromCache(playlistId, trace);
+        refreshLikedPlaylist(playlistId, trace);
         return;
       }
       if (force || !isLikedPlaylistFresh()) {
-        refreshLikedPlaylist(playlistId);
+        refreshLikedPlaylist(playlistId, trace);
       }
     };
 
@@ -382,13 +425,17 @@ export const useUserStore = defineStore(
     };
 
     /** 从缓存恢复轻量内容 */
-    const hydrateContentFromCache = async (userId: number): Promise<void> => {
+    const hydrateContentFromCache = async (userId: number, trace: FavoriteTrace): Promise<void> => {
       try {
         const [cachedIds, cachedPlaylists] = await Promise.all([
           cacheDb.getItem<LikedSongIdsCache>(LIKED_SONG_IDS_CACHE_KEY),
           cacheDb.getItem<PlaylistsCache>(PLAYLISTS_CACHE_KEY),
         ]);
         if (cachedIds?.userId === userId) {
+          favoriteDiagnostic({ ...trace, source: "liked-ids-cache" }, "snapshot", {
+            userId,
+            ids: cachedIds.ids,
+          });
           likedSongIds.value = new Set(cachedIds.ids);
         }
         if (cachedPlaylists?.userId === userId) {
@@ -403,11 +450,11 @@ export const useUserStore = defineStore(
      * 拉取并应用用户歌单
      * @param uid 用户 ID
      */
-    const fetchAndApplyPlaylists = async (uid: number): Promise<void> => {
+    const fetchAndApplyPlaylists = async (uid: number, trace?: FavoriteTrace): Promise<void> => {
       const sub = await fetchSubcount();
       subcount.value = sub;
       const total = (sub.createdPlaylistCount || 0) + (sub.subPlaylistCount || 0) || 50;
-      const list = await fetchUserPlaylists(uid, total);
+      const list = await fetchUserPlaylists(uid, total, trace);
       playlists.value = list;
       const payload: PlaylistsCache = {
         userId: uid,
@@ -423,18 +470,20 @@ export const useUserStore = defineStore(
      */
     const loadContent = async (uid: number): Promise<void> => {
       if (!uid) return;
+      const trace = favoriteTrace("load-content");
+      favoriteDiagnostic(trace, "sync-start", { userId: uid });
       // 缓存即时上屏，不阻塞后续网络
-      await hydrateContentFromCache(uid);
+      await hydrateContentFromCache(uid, trace);
       const settled = await Promise.allSettled([
-        fetchAndApplyPlaylists(uid),
-        fetchLikelist(uid),
+        fetchAndApplyPlaylists(uid, trace),
+        fetchLikelist(uid, trace),
         fetchUserAlbums(),
         fetchUserArtists(),
         fetchUserLevel(),
       ]);
       const [_plRes, likeRes, albumRes, artistRes, levelRes] = settled;
       if (likeRes.status === "fulfilled") {
-        applyLikedSongIds(likeRes.value);
+        applyLikedSongIds(likeRes.value, { ...trace, source: "likelist-apply" });
       }
       if (albumRes.status === "fulfilled") albums.value = albumRes.value;
       if (artistRes.status === "fulfilled") artists.value = artistRes.value;
@@ -446,23 +495,32 @@ export const useUserStore = defineStore(
       }
       const playlistId = likedPlaylistId.value;
       if (playlistId && currentLikedPlaylistId === playlistId && !isLikedPlaylistFresh()) {
-        refreshLikedPlaylist(playlistId);
+        refreshLikedPlaylist(playlistId, trace);
       }
+      favoriteDiagnostic(trace, "sync-end", { userId: uid });
     };
 
     /**
      * 切换红心状态
      * @param trackId - 曲目全局 id
      */
-    const toggleLike = async (trackId: string): Promise<boolean> => {
+    const toggleLike = async (trackId: string, source = "user-store"): Promise<boolean> => {
+      const trace = favoriteTrace(source);
       const wasLiked = likedSongIds.value.has(trackId);
+      favoriteDiagnostic(trace, "operation", {
+        userId: profile.value?.userId,
+        trackId,
+        wasLiked,
+        liked: !wasLiked,
+      });
       const next = new Set(likedSongIds.value);
       if (wasLiked) next.delete(trackId);
       else next.add(trackId);
       likedSongIds.value = next;
       try {
-        await toggleLikeSong(trackId, !wasLiked);
+        await toggleLikeSong(trackId, !wasLiked, trace);
         persistLikedSongIds();
+        favoriteDiagnostic(trace, "success", { trackId, liked: likedSongIds.value.has(trackId) });
         return true;
       } catch (err) {
         // 仅在明确为 401（下架歌曲无法通过红心接口收藏）且存在喜欢歌单时尝试降级操作
@@ -472,13 +530,22 @@ export const useUserStore = defineStore(
           (err instanceof Error && err.message.includes("401"));
 
         if (is401 && likedPlaylistId.value) {
+          favoriteDiagnostic({ ...trace, source: "like-to-playlist" }, "fallback", {
+            trackId,
+            playlistId: likedPlaylistId.value,
+            liked: !wasLiked,
+          });
           try {
             if (!wasLiked) {
-              await addTracksToPlaylist(likedPlaylistId.value, [trackId]);
+              await addTracksToPlaylist(likedPlaylistId.value, [trackId], trace);
             } else {
-              await removeTracksFromPlaylist(likedPlaylistId.value, [trackId]);
+              await removeTracksFromPlaylist(likedPlaylistId.value, [trackId], trace);
             }
             persistLikedSongIds();
+            favoriteDiagnostic(trace, "success", {
+              trackId,
+              liked: likedSongIds.value.has(trackId),
+            });
             return true;
           } catch (plErr) {
             console.warn("[user] fallback to playlist add failed:", plErr);
@@ -488,6 +555,7 @@ export const useUserStore = defineStore(
         if (wasLiked) rollback.add(trackId);
         else rollback.delete(trackId);
         likedSongIds.value = rollback;
+        favoriteDiagnostic(trace, "rollback", { trackId, liked: wasLiked });
         console.warn("[user] toggle like failed:", err);
         return false;
       }
@@ -520,7 +588,7 @@ export const useUserStore = defineStore(
      * @param id 歌单 ID
      */
     const deletePlaylist = async (id: string): Promise<void> => {
-      await apiDeletePlaylist(id);
+      await apiDeletePlaylist(id, favoriteTrace("delete-playlist"));
       await refreshPlaylists();
     };
 
@@ -548,8 +616,14 @@ export const useUserStore = defineStore(
      * @param trackIds 曲目 ID 列表
      * @returns 成功添加的曲目数量
      */
-    const addTracksToPlaylist = async (playlistId: string, trackIds: string[]): Promise<number> => {
-      const count = await addToPlaylist(playlistId, trackIds);
+    const addTracksToPlaylist = async (
+      playlistId: string,
+      trackIds: string[],
+      trace = favoriteTrace("playlist-add"),
+    ): Promise<number> => {
+      favoriteDiagnostic(trace, "operation", { playlistId, ids: trackIds, liked: true });
+      const count = await addToPlaylist(playlistId, trackIds, trace);
+      favoriteDiagnostic(trace, "success", { playlistId, liked: true, count });
       if (count <= 0) return 0;
       if (playlistId === likedPlaylistId.value) {
         const next = new Set(likedSongIds.value);
@@ -569,8 +643,11 @@ export const useUserStore = defineStore(
     const removeTracksFromPlaylist = async (
       playlistId: string,
       trackIds: string[],
+      trace = favoriteTrace("playlist-remove"),
     ): Promise<void> => {
-      await removeFromPlaylist(playlistId, trackIds);
+      favoriteDiagnostic(trace, "operation", { playlistId, ids: trackIds, liked: false });
+      await removeFromPlaylist(playlistId, trackIds, trace);
+      favoriteDiagnostic(trace, "success", { playlistId, liked: false });
       if (playlistId === likedPlaylistId.value) {
         const removeSet = new Set(trackIds);
         const next = new Set(likedSongIds.value);

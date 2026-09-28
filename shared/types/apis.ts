@@ -10,6 +10,24 @@ export type ApiCallResponse =
   | { ok: true; status?: number; body?: unknown; data?: unknown }
   | { ok: false; error: string; status?: number; body?: unknown };
 
+/** 收藏诊断上下文，仅在本地传递 */
+export interface FavoriteTrace {
+  operationId: string;
+  source: string;
+}
+
+/** 收藏诊断事件，字段由主进程白名单筛选 */
+export interface FavoriteDiagnostic extends FavoriteTrace {
+  event: "operation" | "success" | "rollback" | "fallback" | "sync-start" | "sync-end" | "snapshot";
+  userId?: number;
+  trackId?: string;
+  playlistId?: string;
+  liked?: boolean;
+  wasLiked?: boolean;
+  count?: number;
+  ids?: string[];
+}
+
 /** 渲染端统一入口 */
 export interface ApisApi {
   /**
@@ -22,7 +40,9 @@ export interface ApisApi {
     platform: ApiPlatform,
     name: string,
     params?: Record<string, unknown>,
+    trace?: FavoriteTrace,
   ) => Promise<ApiCallResponse>;
+  favoriteDiagnostic: (event: FavoriteDiagnostic) => void;
   /**
    * 清空指定平台的登录态
    * @param platform 音源平台

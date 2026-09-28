@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import type { FavoriteTrace } from "@shared/types/apis";
+import { favoriteLog, favoriteRequestContext, tracedFavoriteApis } from "./diagnostics";
 /**
  * Netease API 主进程服务
  *
@@ -205,7 +208,7 @@ export const ensureNeteaseAnonymousSession = async (): Promise<void> => {
  * @param name 见 modules/index.ts 中的 key
  * @param params 业务参数；cookie 自动注入，无需调用方传
  */
-export const callNetease = async (
+const callNeteaseInternal = async (
   name: string,
   params: Record<string, unknown> = {},
 ): Promise<{ status: number; body: any }> => {
@@ -228,7 +231,10 @@ export const callNetease = async (
   const cacheKey = cacheable ? buildCacheKey(name, params) : "";
   if (cacheable) {
     const hit = cacheGet(cacheKey);
-    if (hit) return hit;
+    if (hit) {
+      if (favoriteRequestContext.getStore()) favoriteLog("cache-hit");
+      return hit;
+    }
   }
 
   const query: Query = {
@@ -297,3 +303,77 @@ export const callNetease = async (
 
 /** 调试用：当前 cookie 序列化字符串 */
 export const currentCookieString = (): string => serialize(loadSession());
+
+/**
+ * 在调用边界建立独立上下文，避免并发请求串号
+ * @param name - 网易云接口名
+ * @param params - 原始业务参数
+ * @param trace - 仅用于本地关联的操作上下文
+ * @returns 原始接口状态和响应
+ */
+export const callNetease = async (
+  name: string,
+  params: Record<string, unknown> = {},
+  trace?: FavoriteTrace,
+): Promise<{ status: number; body: any }> => {
+  if (!tracedFavoriteApis.has(name)) return callNeteaseInternal(name, params);
+  return favoriteRequestContext.run(
+    {
+      operationId: trace?.operationId ?? randomUUID(),
+      source: trace?.source ?? "api",
+      requestId: randomUUID(),
+      name,
+    },
+    async () => {
+      const start = performance.now();
+      favoriteLog(
+        "call",
+        params,
+        typeof params.tracks === "string" ? params.tracks.split(",") : undefined,
+      );
+      try {
+        const result = await callNeteaseInternal(name, params);
+        const body = result.body;
+        favoriteLog("result", {
+          status: result.status,
+          code: body?.code,
+          playlistId: body?.playlistId,
+          count: body?.count,
+          elapsedMs: Math.round(performance.now() - start),
+        });
+        if (name === "likelist" && Array.isArray(body?.ids))
+          favoriteLog("remote-likelist", {}, body.ids);
+        if (name === "playlist_detail" && Array.isArray(body?.playlist?.trackIds))
+          favoriteLog(
+            "remote-playlist",
+            { playlistId: String(params.id) },
+            body.playlist.trackIds.map((item: { id: unknown }) => item.id),
+          );
+        if (name === "user_playlist" && Array.isArray(body?.playlist))
+          favoriteLog(
+            "remote-user-playlists",
+            {},
+            body.playlist.map((item: { id: unknown }) => item.id),
+          );
+        return result;
+      } catch (error) {
+        const failure = error as {
+          name?: string;
+          response?: { status?: number; body?: { code?: unknown } };
+        };
+        favoriteLog(
+          "failure",
+          {
+            errorName: failure?.name,
+            status: failure?.response?.status,
+            code: failure?.response?.body?.code,
+            elapsedMs: Math.round(performance.now() - start),
+          },
+          undefined,
+          true,
+        );
+        throw error;
+      }
+    },
+  );
+};

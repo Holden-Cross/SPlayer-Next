@@ -682,7 +682,7 @@ defineExpose({
                   circle
                   :size="28"
                   :icon-size="20"
-                  @click="fav.toggle(item)"
+                  @click="fav.toggle(item, 'song-list')"
                 >
                   <template #icon>
                     <SIconSwap :active="fav.isLiked(item)">

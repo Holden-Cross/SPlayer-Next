@@ -220,7 +220,7 @@ export type PlayerEvent =
   | { type: "setShuffle"; data: { mode: ShuffleMode } }
   | { type: "setRepeat"; data: { mode: RepeatMode } }
   | { type: "addToQueue"; data: { tracks: Track[]; position: "next" | "end" } }
-  | { type: "toggleLike" }
+  | { type: "toggleLike"; data?: { source: "tray" | "thumbar" } }
   | { type: "fftData"; data: FftData }
   | { type: "error"; error: string }
   | { type: "deviceChanged"; data: { defaultDevice: string | null } }

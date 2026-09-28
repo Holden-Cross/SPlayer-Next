@@ -8,13 +8,14 @@
  * 想取原始响应（含 HTTP status）用 `neteaseRaw`
  */
 
-import type { ApiCallResponse } from "@shared/types/apis";
+import type { ApiCallResponse, FavoriteTrace } from "@shared/types/apis";
 import { isExplicitNeteaseAuthFailure } from "@/apis/neteaseAuth";
 
 type AuthFailureListener = (error: NeteaseApiError) => void;
 
 interface NeteaseCallOptions {
   notifyAuthFailure?: boolean;
+  trace?: FavoriteTrace;
 }
 
 let authFailureListener: AuthFailureListener | null = null;
@@ -43,7 +44,7 @@ export const neteaseRaw = async (
   params?: Record<string, unknown>,
   options?: NeteaseCallOptions,
 ): Promise<{ status: number; body: unknown }> => {
-  const res: ApiCallResponse = await window.api.apis.call("netease", name, params);
+  const res: ApiCallResponse = await window.api.apis.call("netease", name, params, options?.trace);
   if (!res.ok) {
     const error = new NeteaseApiError(res.error, res.status, res.body);
     if (
@@ -73,7 +74,10 @@ export const neteaseCall = async <T = any>(
   return res.body as T;
 };
 
-type NeteaseProxy = Record<string, <T = any>(params?: Record<string, unknown>) => Promise<T>>;
+type NeteaseProxy = Record<
+  string,
+  <T = any>(params?: Record<string, unknown>, trace?: FavoriteTrace) => Promise<T>
+>;
 
 /**
  * 任意方法调用：`netease.search(...)` / `netease.song_url_v1(...)`
@@ -81,8 +85,8 @@ type NeteaseProxy = Record<string, <T = any>(params?: Record<string, unknown>) =
 export const netease: NeteaseProxy = new Proxy({} as NeteaseProxy, {
   get:
     (_t, name: string) =>
-    <T = any>(params?: Record<string, unknown>) =>
-      neteaseCall<T>(name, params),
+    <T = any>(params?: Record<string, unknown>, trace?: FavoriteTrace) =>
+      neteaseCall<T>(name, params, { trace }),
 });
 
 /** 清空登录态 cookie */

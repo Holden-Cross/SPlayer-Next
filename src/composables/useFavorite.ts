@@ -68,7 +68,7 @@ export const useFavorite = () => {
    * @param track 歌曲
    * @returns 是否切换成功
    */
-  const toggle = async (track: Track | null | undefined): Promise<void> => {
+  const toggle = async (track: Track | null | undefined, source = "favorite"): Promise<void> => {
     if (!track) return;
     if (track.source === "local") {
       const next = library.toggleLike(track.id);
@@ -83,7 +83,7 @@ export const useFavorite = () => {
         return;
       }
       const wasLiked = user.isLiked(track.id);
-      const ok = await user.toggleLike(track.id);
+      const ok = await user.toggleLike(track.id, source);
       if (!ok) {
         toast.error(t("liked.toast.failed"));
         return;

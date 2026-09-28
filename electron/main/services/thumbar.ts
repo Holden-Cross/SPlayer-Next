@@ -39,7 +39,7 @@ class ThumbarImpl implements Thumbar {
     this.like = {
       tooltip: t("addToLiked"),
       icon: thumbarIcon("unlike"),
-      click: () => sendToMain("player:event", { type: "toggleLike" }),
+      click: () => sendToMain("player:event", { type: "toggleLike", data: { source: "thumbar" } }),
     };
     this.prev = {
       tooltip: t("prev"),

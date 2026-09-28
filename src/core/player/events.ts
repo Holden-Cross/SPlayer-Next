@@ -151,7 +151,7 @@ export const handleEvent = async (event: PlayerEvent): Promise<void> => {
       insertManyToQueue(event.data.tracks, event.data.position);
       break;
     case "toggleLike":
-      await useFavorite().toggle(useMediaStore().track);
+      await useFavorite().toggle(useMediaStore().track, event.data?.source ?? "player-event");
       break;
     case "deviceChanged": {
       const prevActiveId = getActiveDeviceId();
